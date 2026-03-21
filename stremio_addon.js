@@ -832,31 +832,24 @@ function applyMappingHintsToContext(context, payload) {
     }
 }
 
-async function fetchMappingByRoute(route, value, season) {
+async function fetchMappingByProvider(provider, value, season, episode) {
     const mappingApiUrl = getMappingApiUrl();
-    if (!mappingApiUrl || !route || !value) return null;
+    const normalizedProvider = String(provider || '').trim().toLowerCase();
+    if (!mappingApiUrl || !normalizedProvider || !value) return null;
+    if (!['imdb', 'tmdb', 'kitsu'].includes(normalizedProvider)) return null;
+
     const encodedValue = encodeURIComponent(String(value).trim());
-    let url = `${mappingApiUrl}/mapping/${route}/${encodedValue}`;
+    let url = `${mappingApiUrl}/${normalizedProvider}/${encodedValue}`;
+    const params = new URLSearchParams();
     if (Number.isInteger(season) && season >= 0) {
-        url += `?season=${season}`;
+        params.set('s', String(season));
     }
-
-    try {
-        const response = await fetch(url, { timeout: CANONICAL_RESOLVE_TIMEOUT });
-        if (!response.ok) return null;
-        return await response.json();
-    } catch {
-        return null;
+    if (Number.isInteger(episode) && episode > 0) {
+        params.set('ep', String(episode));
     }
-}
-
-async function fetchMappingByKitsu(kitsuId, season) {
-    const mappingApiUrl = getMappingApiUrl();
-    if (!mappingApiUrl || !kitsuId) return null;
-    const encodedValue = encodeURIComponent(String(kitsuId).trim());
-    let url = `${mappingApiUrl}/mapping/${encodedValue}`;
-    if (Number.isInteger(season) && season >= 0) {
-        url += `?season=${season}`;
+    const query = params.toString();
+    if (query) {
+        url += `?${query}`;
     }
 
     try {
@@ -889,8 +882,8 @@ async function fetchTmdbIdFromImdbForCanonicalKey(imdbId) {
     }
 }
 
-async function resolveProviderRequestContext(type, providerId, season, seasonProvided = false) {
-    const identityKey = `${type}:${providerId}:${season}:${seasonProvided ? 1 : 0}`;
+async function resolveProviderRequestContext(type, providerId, season, episode, seasonProvided = false) {
+    const identityKey = `${type}:${providerId}:${season}:${episode}:${seasonProvided ? 1 : 0}`;
     const cached = getCachedRequestContext(identityKey);
     if (cached !== undefined) {
         return cached;
@@ -901,11 +894,17 @@ async function resolveProviderRequestContext(type, providerId, season, seasonPro
         Number.isInteger(parsedSeason) && parsedSeason >= 0
             ? parsedSeason
             : null;
+    const parsedEpisode = Number.parseInt(episode, 10);
+    const normalizedRequestedEpisode =
+        Number.isInteger(parsedEpisode) && parsedEpisode > 0
+            ? parsedEpisode
+            : 1;
 
     const context = {
         idType: 'raw',
         providerId: String(providerId),
         requestedSeason: normalizedRequestedSeason,
+        requestedEpisode: normalizedRequestedEpisode,
         seasonProvided: seasonProvided === true,
         kitsuId: null,
         tmdbId: null,
@@ -942,7 +941,7 @@ async function resolveProviderRequestContext(type, providerId, season, seasonPro
                 context.kitsuId = parts[1];
                 let mappingSignalsFound = false;
                 if (shouldFetchMappingApi) {
-                    const byKitsu = await fetchMappingByKitsu(context.kitsuId, context.requestedSeason);
+                    const byKitsu = await fetchMappingByProvider('kitsu', context.kitsuId, context.requestedSeason, context.requestedEpisode);
                     if (byKitsu) {
                         applyMappingHintsToContext(context, byKitsu);
                         mappingSignalsFound = hasUsefulMappingSignals(byKitsu);
@@ -962,7 +961,7 @@ async function resolveProviderRequestContext(type, providerId, season, seasonPro
             let mappingSignalsFound = false;
 
             if (shouldFetchMappingApi) {
-                const byImdb = await fetchMappingByRoute('by-imdb', idStr, context.requestedSeason);
+                const byImdb = await fetchMappingByProvider('imdb', idStr, context.requestedSeason, context.requestedEpisode);
                 if (byImdb) {
                     applyMappingHintsToContext(context, byImdb);
                     mappingSignalsFound = hasUsefulMappingSignals(byImdb);
@@ -982,7 +981,7 @@ async function resolveProviderRequestContext(type, providerId, season, seasonPro
         }
 
         if (shouldFetchMappingApi && context.tmdbId) {
-            const byTmdb = await fetchMappingByRoute('by-tmdb', context.tmdbId, context.requestedSeason);
+            const byTmdb = await fetchMappingByProvider('tmdb', context.tmdbId, context.requestedSeason, context.requestedEpisode);
             if (byTmdb) {
                 applyMappingHintsToContext(context, byTmdb);
             }
@@ -1004,6 +1003,7 @@ function buildProviderRequestContext(context) {
         idType: context.idType,
         providerId: context.providerId,
         requestedSeason: context.requestedSeason,
+        requestedEpisode: context.requestedEpisode,
         seasonProvided: context.seasonProvided === true,
         kitsuId: context.kitsuId,
         tmdbId: context.tmdbId,
@@ -1026,7 +1026,7 @@ async function resolveCanonicalStreamCacheKey(type, providerId, season, episode,
     if (!ADDON_CACHE_ENABLED) return null;
     if (type !== 'series' && type !== 'anime') return null;
 
-    const context = requestContext || await resolveProviderRequestContext(type, providerId, season, false);
+    const context = requestContext || await resolveProviderRequestContext(type, providerId, season, episode, false);
     const parsedIdentityMappedSeason = Number.parseInt(context?.mappedSeason, 10);
     const identityMappedSeasonToken = Number.isInteger(parsedIdentityMappedSeason)
         ? parsedIdentityMappedSeason
@@ -1189,7 +1189,7 @@ builder.defineStreamHandler(async ({ type, id }) => {
     const providerId = parsedRequest.providerId;
     const season = parsedRequest.season;
     const episode = parsedRequest.episode;
-    const requestContext = await resolveProviderRequestContext(type, providerId, season, parsedRequest.seasonProvided);
+    const requestContext = await resolveProviderRequestContext(type, providerId, season, episode, parsedRequest.seasonProvided);
     const bypassSeasonZeroCache = shouldBypassStreamCacheForSeasonZero(type, requestContext);
     const cacheEnabledForRequest = ADDON_CACHE_ENABLED && !bypassSeasonZeroCache;
 
