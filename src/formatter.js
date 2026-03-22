@@ -55,6 +55,26 @@ function normalizePlaybackHeaders(headers) {
     return normalized;
 }
 
+function shouldForceNotWebReadyForPlugin(stream, providerName, headers, behaviorHints) {
+    const text = [
+        stream?.url,
+        stream?.name,
+        stream?.title,
+        stream?.server,
+        providerName
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    if (text.includes('mixdrop') || text.includes('m1xdrop') || text.includes('mxcontent')) {
+        return true;
+    }
+
+    if (text.includes('loadm') || text.includes('loadm.cam')) {
+        return true;
+    }
+
+    return false;
+}
+
 function formatStream(stream, providerName) {
     // 1. Filter MixDrop (removed from shared formatter, handled in Stremio addon separately)
     // const server = (stream.server || "").toLowerCase();
@@ -136,7 +156,7 @@ function formatStream(stream, providerName) {
         behaviorHints.headers = finalHeaders;
     }
 
-    behaviorHints.notWebReady = false;
+    behaviorHints.notWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
 
     const finalName = pName;
     let finalTitle = `📁 ${stream.title || 'Stream'}`;

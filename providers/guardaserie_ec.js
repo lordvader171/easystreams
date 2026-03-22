@@ -7446,6 +7446,22 @@ var require_formatter = __commonJS({
       }
       return normalized;
     }
+    function shouldForceNotWebReadyForPlugin(stream, providerName, headers, behaviorHints) {
+      const text = [
+        stream == null ? void 0 : stream.url,
+        stream == null ? void 0 : stream.name,
+        stream == null ? void 0 : stream.title,
+        stream == null ? void 0 : stream.server,
+        providerName
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) {
+        return true;
+      }
+      if (text.includes("loadm") || text.includes("loadm.cam")) {
+        return true;
+      }
+      return false;
+    }
     function formatStream(stream, providerName) {
       let quality = stream.quality || "";
       if (quality === "2160p") quality = "\u{1F525}4K UHD";
@@ -7487,7 +7503,7 @@ var require_formatter = __commonJS({
         behaviorHints.proxyHeaders.request = finalHeaders;
         behaviorHints.headers = finalHeaders;
       }
-      behaviorHints.notWebReady = false;
+      behaviorHints.notWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
       const finalName = pName;
       let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
       if (desc) finalTitle += ` | ${desc}`;
